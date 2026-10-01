@@ -1,0 +1,19 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TikTok sign-in · 48 Hours Later Uploader</title><link rel="stylesheet" href="style.css">
+<style>.code{font:600 15px/1.5 Consolas,monospace;background:#1d1716;border:1px solid #3a2b28;border-radius:10px;padding:14px;word-break:break-all;margin:14px 0}
+button{background:#e2544a;color:#fff;border:0;border-radius:8px;padding:10px 16px;font-weight:700;cursor:pointer}</style></head><body><main>
+<div class="brand"><b>48TH</b> STATE SPORTS</div>
+<h1>TikTok sign-in</h1>
+<p id="msg" class="muted">Reading the response from TikTok…</p>
+<div id="box" style="display:none"><p>Copy this code and paste it back into the uploader:</p><div class="code" id="code"></div>
+<button onclick="navigator.clipboard.writeText(document.getElementById('code').textContent);this.textContent='Copied ✓'">Copy code</button></div>
+<p class="muted" style="margin-top:28px">This page only displays the one-time code TikTok sends back after you approve the app. Nothing is stored or sent anywhere.
+<a href="privacy.html">Privacy Policy</a> · <a href="terms.html">Terms</a></p>
+<script>
+const q = new URLSearchParams(location.search);
+const code = q.get("code"), err = q.get("error");
+if (code) { document.getElementById("msg").textContent = "Signed in with TikTok ✓"; document.getElementById("box").style.display = "block";
+  document.getElementById("code").textContent = code + (q.get("state") ? "|" + q.get("state") : ""); }
+else if (err) { document.getElementById("msg").textContent = "Sign-in didn't complete: " + err + " " + (q.get("error_description") || ""); }
+else { document.getElementById("msg").textContent = "This is the TikTok sign-in return page for 48 Hours Later Uploader."; }
+</script></main></body></html>
