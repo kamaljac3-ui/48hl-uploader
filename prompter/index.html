@@ -74,6 +74,9 @@ input[type=range]{width:100%;accent-color:var(--gold)}
 #start h1{font:800 54px/0.95 var(--display);text-transform:uppercase;margin:0 0 6px;letter-spacing:.02em}
 #start h1 span{color:var(--gold)}
 #start p{color:var(--steel);max-width:30ch;margin:0 auto 22px;line-height:1.45}
+#warn{position:fixed;left:14px;right:14px;top:calc(env(safe-area-inset-top,0px) + 54px);display:none;z-index:5;padding:10px 12px;
+  border-radius:8px;background:rgba(200,16,46,.92);color:#fff;font:700 14px/1.35 var(--body)}
+#ver{color:var(--steel);font-size:12px;margin-top:14px;opacity:.7}
 @media (prefers-reduced-motion:reduce){#rec i{animation:none}}
 </style>
 </head>
@@ -83,6 +86,7 @@ input[type=range]{width:100%;accent-color:var(--gold)}
 <div id="band"><div id="viewport"><div id="guide"></div><div id="text"></div></div></div>
 <div id="rec"><i></i><span id="clock">0:00</span></div>
 <div id="count"></div>
+<div id="warn" role="status"></div>
 
 <div id="dock">
   <div class="row hide-rec" style="flex:0 0 auto;gap:8px">
@@ -133,6 +137,7 @@ input[type=range]{width:100%;accent-color:var(--gold)}
     <h1>48th State<br><span>Prompter</span></h1>
     <p>Your script scrolls right under the front camera while you record. Nothing gets uploaded. Videos stay on your phone.</p>
     <button class="btn gold" id="go" style="font-size:18px;padding:16px 28px">Turn on camera</button>
+    <div id="ver">v2 · Oct 16 · audio + long-take fix</div>
   </div>
 </div>
 <div id="err"><div><b>Camera blocked</b><span id="errmsg"></span></div></div>
@@ -169,7 +174,7 @@ Until next time. We out.`;
     height: store.get("height", 38), autoscroll: store.get("autoscroll", true),
     countdown: store.get("countdown", true), back: store.get("back", false)
   };
-  let stream = null, rec = null, chunks = [], blob = null, take = 0;
+  let stream = null, rec = null, chunks = [], blob = null, take = 0, wake = null, playURL = null;
   let pos = 0, rolling = false, last = 0, t0 = 0, clockT = null;
 
   // ---------- script render ----------
@@ -207,10 +212,27 @@ Until next time. We out.`;
       });
       $("cam").srcObject = stream; $("cam").classList.toggle("mirror", !S.back);
       $("start").style.display = "none";
-      try { await navigator.wakeLock?.request("screen"); } catch {}
-    } catch (e) { fail("Allow camera and microphone for this site: Settings → Safari → Camera / Microphone → Allow, then reload."); }
+      await keepAwake();
+      return true;
+    } catch (e) { fail("Allow camera and microphone for this site: Settings → Safari → Camera / Microphone → Allow, then reload."); return false; }
   }
   function fail(msg) { $("errmsg").textContent = msg; $("err").style.display = "grid"; }
+  function warn(msg) { $("warn").textContent = msg; $("warn").style.display = "block"; clearTimeout(warn.t); warn.t = setTimeout(() => $("warn").style.display = "none", 6000); }
+
+  // Keep the screen awake. iOS drops the wake lock whenever the page is hidden (share sheet, app switch),
+  // so re-request it on every return and before every take; otherwise auto-lock kills long recordings.
+  async function keepAwake() {
+    if (wake && !wake.released) return;
+    try { wake = await navigator.wakeLock?.request("screen") || null; } catch { wake = null; }
+  }
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && stream) keepAwake(); });
+
+  // A live mic + camera? iOS can mute or end the mic track after audio playback (the review player) or a call.
+  function healthy() {
+    if (!stream) return false;
+    const a = stream.getAudioTracks(), v = stream.getVideoTracks();
+    return a.length > 0 && v.length > 0 && [...a, ...v].every(t => t.readyState === "live" && !t.muted);
+  }
 
   // ---------- recording ----------
   function pickType() {
@@ -227,11 +249,24 @@ Until next time. We out.`;
   async function startRec() {
     if (!stream) return;
     if (!window.MediaRecorder) return fail("Recording isn't supported in this browser. Update iOS or use Safari.");
+    releaseTake();
+    // Fresh mic + camera for every take after the first: playing back a take on iPhone can silently mute the
+    // mic, which is why retakes came out with no audio. Reconnecting takes well under a second.
+    if (take > 0 || !healthy()) { if (!(await startCam())) return; }
+    if (!stream.getAudioTracks().length) warn("No microphone found. This take will have no sound.");
+    await keepAwake();
     await countdown();
     chunks = []; const type = pickType();
-    rec = new MediaRecorder(stream, type ? { mimeType: type, videoBitsPerSecond: 8_000_000 } : undefined);
+    // 5 Mbps is plenty for 1080p talking-head video and keeps a 10-minute take around 375 MB instead of 600+,
+    // which is what was crashing the page on long recordings.
+    const opts = { videoBitsPerSecond: 5_000_000, audioBitsPerSecond: 128_000 };
+    if (type) opts.mimeType = type;
+    try { rec = new MediaRecorder(stream, opts); } catch { rec = new MediaRecorder(stream); }
     rec.ondataavailable = e => e.data.size && chunks.push(e.data);
     rec.onstop = showTake;
+    rec.onerror = e => { warn("Recording error: " + (e.error?.message || e.error?.name || "unknown") + ". Saving what was recorded."); stopRec(); };
+    // If the camera or mic drops mid-take (call, screen lock, Control Center), stop cleanly and keep the footage.
+    stream.getTracks().forEach(t => t.onended = () => { if (rec?.state === "recording") { warn("The camera or mic was interrupted. Saved the take up to that point."); stopRec(); } });
     rec.start(1000);
     document.body.classList.add("recording"); t0 = Date.now();
     clockT = setInterval(() => { const s = Math.floor((Date.now() - t0) / 1000); $("clock").textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; }, 250);
@@ -239,19 +274,33 @@ Until next time. We out.`;
   }
   function stopRec() { if (rec && rec.state !== "inactive") rec.stop(); setRolling(false); clearInterval(clockT); document.body.classList.remove("recording"); }
   function showTake() {
-    blob = new Blob(chunks, { type: rec.mimeType || "video/mp4" }); take++;
-    $("takeno").textContent = take; $("playback").src = URL.createObjectURL(blob); open("review");
+    if (!chunks.length) { warn("Nothing was recorded. Try again, and keep the app open until you tap stop."); return; }
+    blob = new Blob(chunks, { type: rec.mimeType || "video/mp4" }); chunks = []; take++;
+    playURL = URL.createObjectURL(blob);
+    $("takeno").textContent = take; $("playback").src = playURL; open("review");
+  }
+  // Free the last take's memory and stop its player (the player holding the audio is part of the iPhone mic bug).
+  function releaseTake() {
+    const p = $("playback"); p.pause(); p.removeAttribute("src"); p.load();
+    if (playURL) URL.revokeObjectURL(playURL); playURL = null;
   }
   $("recbtn").onclick = () => (rec && rec.state === "recording") ? stopRec() : startRec();
-  $("retake").onclick = () => { close("review"); pos = 0; place(); };
+  $("retake").onclick = () => { releaseTake(); blob = null; close("review"); pos = 0; place(); };
   $("savevid").onclick = async () => {
+    if (!blob) return;
+    $("playback").pause();
     const ext = (blob.type.includes("mp4") ? "mp4" : "webm");
     const name = `48th-state-take${take}-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}.${ext}`;
     const file = new File([blob], name, { type: blob.type });
     try {
       if (navigator.canShare?.({ files: [file] })) { await navigator.share({ files: [file] }); return; }
-    } catch (e) { if (e.name === "AbortError") return; }
-    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    } catch (e) {
+      if (e.name === "AbortError") return;
+      warn("Share sheet failed (" + e.name + "). Downloading the file instead.");
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
   };
 
   // ---------- sheets + settings ----------
