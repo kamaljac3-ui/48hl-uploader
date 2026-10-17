@@ -153,15 +153,13 @@ input[type=range]{width:100%;accent-color:var(--gold)}
   </div>
   <p class="hint">Keep this page open until it says <b>Sent</b>. Full quality, no texting needed.</p>
 </section>
-<input type="file" id="pickvid" accept="video/*" hidden>
 
 <div id="start">
   <div>
     <h1>48th State<br><span>Prompter</span></h1>
-    <p>Your script scrolls right under the front camera while you record. Videos stay on your phone unless you tap <b>Send to KJ</b>.</p>
+    <p>Your script scrolls right under the front camera while you record. After each take, tap <b>Send to KJ</b> to send it at full quality.</p>
     <button class="btn gold" id="go" style="font-size:18px;padding:16px 28px">Turn on camera</button>
-    <div style="margin-top:14px"><button class="btn" id="sendold">Send a video to KJ</button></div>
-    <div id="ver">v3 · Oct 16 · Send to KJ</div>
+    <div id="ver">v3.1 · Oct 16 · Send to KJ after each take</div>
   </div>
 </div>
 <div id="err"><div><b>Camera blocked</b><span id="errmsg"></span></div></div>
@@ -422,8 +420,6 @@ Until next time. We out.`;
     const ext = blob.type.includes("mp4") ? "mp4" : "webm";
     openSend(new File([blob], `48th-state-take${take}.${ext}`, { type: blob.type }), `Take ${take}`);
   };
-  $("sendold").onclick = () => $("pickvid").click();
-  $("pickvid").onchange = () => { const f = $("pickvid").files[0]; if (f) openSend(f, f.name || "Video"); $("pickvid").value = ""; };
 
   $("go").onclick = startCam;
   renderText();
