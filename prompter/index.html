@@ -74,9 +74,13 @@ input[type=range]{width:100%;accent-color:var(--gold)}
 #start h1{font:800 54px/0.95 var(--display);text-transform:uppercase;margin:0 0 6px;letter-spacing:.02em}
 #start h1 span{color:var(--gold)}
 #start p{color:var(--steel);max-width:30ch;margin:0 auto 22px;line-height:1.45}
-#warn{position:fixed;left:14px;right:14px;top:calc(env(safe-area-inset-top,0px) + 54px);display:none;z-index:5;padding:10px 12px;
+#warn{position:fixed;left:14px;right:14px;top:calc(env(safe-area-inset-top,0px) + 54px);display:none;z-index:9;padding:10px 12px;
   border-radius:8px;background:rgba(200,16,46,.92);color:#fff;font:700 14px/1.35 var(--body)}
 #ver{color:var(--steel);font-size:12px;margin-top:14px;opacity:.7}
+.field{width:100%;background:var(--navy-2);color:var(--cream);border:1px solid #2a3858;border-radius:10px;padding:12px;font:500 16px var(--body)}
+#sbar{height:12px;border-radius:6px;background:#22304e;overflow:hidden;margin-top:16px}
+#sbar i{display:block;height:100%;width:0;background:var(--gold);transition:width .2s}
+#sendsheet,#review{z-index:6}
 @media (prefers-reduced-motion:reduce){#rec i{animation:none}}
 </style>
 </head>
@@ -126,18 +130,38 @@ input[type=range]{width:100%;accent-color:var(--gold)}
   <h2>Take <span id="takeno"></span></h2>
   <video id="playback" playsinline controls></video>
   <div class="row" style="margin-top:14px">
-    <button class="btn gold" id="savevid">Save video</button>
+    <button class="btn gold" id="sendtake">Send to KJ</button>
+    <button class="btn" id="savevid">Save video</button>
     <button class="btn red" id="retake">Retake</button>
   </div>
-  <p class="hint" id="savehint">“Save video” opens the share sheet. Pick <b>Save Video</b> to put it in Photos, or Save to Files → OneDrive.</p>
+  <p class="hint" id="savehint"><b>Send to KJ</b> uploads this take at full quality straight to KJ. “Save video” keeps a copy on your phone.</p>
 </section>
+
+<section class="sheet" id="sendsheet">
+  <h2>Send to KJ</h2>
+  <p class="hint" id="sendwhat" style="margin-top:0"></p>
+  <label for="sname">Your name</label>
+  <input id="sname" class="field" autocomplete="name" placeholder="e.g. BA">
+  <label for="scode">Crew passcode</label>
+  <input id="scode" class="field" autocapitalize="none" autocomplete="off" spellcheck="false" placeholder="ask KJ">
+  <label for="snote">What is it? (optional)</label>
+  <input id="snote" class="field" placeholder="e.g. Saturday Six, week 8">
+  <div id="sprog" hidden><div id="sbar"><i></i></div><p class="hint" id="sstat"></p></div>
+  <div class="row" style="margin-top:14px">
+    <button class="btn gold" id="sgo">Send</button>
+    <button class="btn" id="scancel">Cancel</button>
+  </div>
+  <p class="hint">Keep this page open until it says <b>Sent</b>. Full quality, no texting needed.</p>
+</section>
+<input type="file" id="pickvid" accept="video/*" hidden>
 
 <div id="start">
   <div>
     <h1>48th State<br><span>Prompter</span></h1>
-    <p>Your script scrolls right under the front camera while you record. Nothing gets uploaded. Videos stay on your phone.</p>
+    <p>Your script scrolls right under the front camera while you record. Videos stay on your phone unless you tap <b>Send to KJ</b>.</p>
     <button class="btn gold" id="go" style="font-size:18px;padding:16px 28px">Turn on camera</button>
-    <div id="ver">v2 · Oct 16 · audio + long-take fix</div>
+    <div style="margin-top:14px"><button class="btn" id="sendold">Send a video to KJ</button></div>
+    <div id="ver">v3 · Oct 16 · Send to KJ</div>
   </div>
 </div>
 <div id="err"><div><b>Camera blocked</b><span id="errmsg"></span></div></div>
@@ -322,6 +346,85 @@ Until next time. We out.`;
     $(k).checked = S[k];
     $(k).onchange = () => { S[k] = $(k).checked; store.set(k, S[k]); if (k === "back" && stream) startCam(); };
   }
+  // ---------- Send to KJ (full-quality upload) ----------
+  // Uploads go to a private Supabase bucket. The key below is the public publishable key: it can ONLY add files under the
+  // folder named after the crew passcode (enforced server-side), and can't list, download, overwrite or delete anything.
+  // The free plan caps one file at 50 MB, so videos go up in 44 MB parts plus a manifest; KJ's PC rejoins them byte-for-byte.
+  const SUPA = "https://hsoaaahgafzvorwgtupo.supabase.co";
+  const ANON = "sb_publishable_UeCDiXsGWKt_Wu2tgh8L6w_WloqjyrB";   // publishable key (the legacy anon JWT stops working end of 2026)
+  const PART = 44 * 1024 * 1024;
+  let sendFile = null, sending = false;
+  const slug = s => (s || "crew").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24) || "crew";
+  const mb = n => (n / 1048576).toFixed(n > 1048576 * 10 ? 0 : 1) + " MB";
+
+  function openSend(file, what) {
+    sendFile = file;
+    $("sendwhat").textContent = `${what} · ${mb(file.size)}`;
+    $("sname").value = store.get("sname", ""); $("scode").value = store.get("scode", ""); $("snote").value = "";
+    $("sprog").hidden = true; $("sgo").disabled = false; $("sgo").textContent = "Send";
+    open("sendsheet");
+  }
+  function putPart(path, body, onProgress) {
+    return new Promise((res, rej) => {
+      const x = new XMLHttpRequest();
+      x.open("POST", `${SUPA}/storage/v1/object/crew-uploads/${path}`);
+      x.setRequestHeader("apikey", ANON);   // gateway adds the anon role from the publishable key
+      x.setRequestHeader("Content-Type", "application/octet-stream"); x.setRequestHeader("x-upsert", "false");
+      x.upload.onprogress = e => e.lengthComputable && onProgress(e.loaded);
+      x.onload = () => (x.status >= 200 && x.status < 300) ? res() : rej(new Error(x.status + " " + (x.responseText || "").slice(0, 160)));
+      x.onerror = () => rej(new Error("network"));
+      x.send(body);
+    });
+  }
+  async function doSend() {
+    if (sending || !sendFile) return;
+    const name = $("sname").value.trim(), code = $("scode").value.trim().toLowerCase().replace(/\s+/g, "");
+    if (!name) return warn("Put your name in so KJ knows who sent it.");
+    if (!code) return warn("Enter the crew passcode (ask KJ).");
+    store.set("sname", name); store.set("scode", code);
+    sending = true; $("sgo").disabled = true; $("sprog").hidden = false;
+    await keepAwake();
+    const f = sendFile, parts = Math.max(1, Math.ceil(f.size / PART));
+    const now = new Date(), day = now.toISOString().slice(0, 10);
+    const id = `${slug(name)}-${now.toISOString().slice(11, 19).replace(/:/g, "")}-${Math.random().toString(36).slice(2, 6)}`;
+    const base = `${code}/${day}/${id}`;
+    let done = 0;
+    const show = (sent, msg) => { const p = Math.min(100, Math.round(sent / f.size * 100));
+      $("sbar").firstElementChild.style.width = p + "%"; $("sstat").textContent = msg || `Sending… ${p}% (${mb(sent)} of ${mb(f.size)})`; };
+    try {
+      for (let i = 0; i < parts; i++) {
+        const chunk = f.slice(i * PART, Math.min(f.size, (i + 1) * PART));
+        for (let attempt = 1; ; attempt++) {
+          try { await putPart(`${base}/part-${String(i + 1).padStart(4, "0")}`, chunk, n => show(done + n)); break; }
+          catch (e) {
+            if (/^400 .*security|row-level/i.test(e.message)) throw new Error("passcode");
+            if (attempt >= 4) throw e;
+            show(done, `Connection hiccup, retrying (${attempt}/3)…`); await new Promise(r => setTimeout(r, 1500 * attempt));
+          }
+        }
+        done += chunk.size; show(done);
+      }
+      const manifest = { name, note: $("snote").value.trim(), filename: f.name || "take.mp4", type: f.type, size: f.size, parts,
+                         part_bytes: PART, sent_at: now.toISOString(), device: navigator.userAgent };
+      await putPart(`${base}/manifest.json`, new Blob([JSON.stringify(manifest, null, 1)], { type: "application/json" }), () => {});
+      show(f.size, "✅ Sent! KJ will have it at full quality in a few minutes.");
+      $("sgo").textContent = "Sent"; $("scancel").textContent = "Done";
+    } catch (e) {
+      $("sgo").disabled = false;
+      if (e.message === "passcode") { store.set("scode", ""); show(done, "❌ That passcode didn't work. Check it with KJ and try again."); }
+      else show(done, "❌ Upload stopped (" + e.message + "). Check your signal and tap Send again.");
+    } finally { sending = false; }
+  }
+  $("sgo").onclick = doSend;
+  $("scancel").onclick = () => { if (!sending) close("sendsheet"); };
+  $("sendtake").onclick = () => {
+    if (!blob) return;
+    const ext = blob.type.includes("mp4") ? "mp4" : "webm";
+    openSend(new File([blob], `48th-state-take${take}.${ext}`, { type: blob.type }), `Take ${take}`);
+  };
+  $("sendold").onclick = () => $("pickvid").click();
+  $("pickvid").onchange = () => { const f = $("pickvid").files[0]; if (f) openSend(f, f.name || "Video"); $("pickvid").value = ""; };
+
   $("go").onclick = startCam;
   renderText();
 })();
