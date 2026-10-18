@@ -108,7 +108,7 @@ input[type=range]{width:100%;accent-color:var(--gold)}
   <h2>Script</h2>
   <textarea id="script" spellcheck="false"></textarea>
   <p class="hint">Paste the teleprompter version I send you. Lines in [brackets] show up gold as cues.</p>
-  <div class="row" style="margin-top:14px"><button class="btn gold" id="savescript">Done</button></div>
+  <div class="row" style="margin-top:14px"><button class="btn red" id="clearscript">Clear</button><button class="btn" id="pastescript">Paste</button><button class="btn gold" id="savescript">Done</button></div>
 </section>
 
 <section class="sheet" id="setsheet">
@@ -329,6 +329,14 @@ Until next time. We out.`;
   function open(id) { document.querySelectorAll(".sheet").forEach(s => s.classList.toggle("open", s.id === id)); }
   function close(id) { $(id).classList.remove("open"); }
   $("scriptbtn").onclick = () => { $("script").value = S.script; open("scriptsheet"); };
+  // Clear wipes the box in one tap; Paste swaps in whatever was just copied (iOS shows a small "Paste" bubble to allow it)
+  $("clearscript").onclick = () => { $("script").value = ""; $("script").focus(); };
+  if (navigator.clipboard && navigator.clipboard.readText) {
+    $("pastescript").onclick = async () => {
+      try { const t = await navigator.clipboard.readText(); if (t) $("script").value = t; }
+      catch { $("script").value = ""; $("script").focus(); }   // blocked: leave an empty box to long-press paste into
+    };
+  } else { $("pastescript").hidden = true; }
   $("savescript").onclick = () => { S.script = $("script").value.trim() || SAMPLE; store.set("script", S.script); pos = 0; renderText(); close("scriptsheet"); };
   $("setbtn").onclick = () => open("setsheet");
   $("closeset").onclick = () => close("setsheet");
