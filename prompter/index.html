@@ -26,12 +26,28 @@ html,body{height:100%;margin:0;background:#000;color:var(--cream);font-family:va
 #band{position:fixed;left:0;right:0;top:0;padding-top:env(safe-area-inset-top,0px);background:var(--band);
   -webkit-mask-image:linear-gradient(#000 82%,transparent);mask-image:linear-gradient(#000 82%,transparent)}
 #viewport{height:var(--band-h,38vh);overflow:hidden;position:relative}
-#text{position:absolute;left:0;right:0;padding:18px 22px 60vh;font-family:var(--display);font-weight:800;
+#text{position:absolute;left:0;right:0;margin:0 auto;width:var(--colw,100%);padding:18px 22px 60vh;font-family:var(--display);font-weight:800;
   font-size:var(--fs,40px);line-height:1.18;letter-spacing:.01em;text-transform:none;white-space:pre-wrap;will-change:transform}
 #text .cue{color:var(--gold)}
 #guide{position:absolute;left:0;right:0;top:calc(18px + var(--fs,40px)*1.2);height:3px;background:var(--red);opacity:.0;transition:opacity .2s}
 body.rolling #guide{opacity:.55}
 #text.flip{transform:scaleX(-1)}
+#band{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:none}
+/* talking-point cards */
+#cards{display:none;position:absolute;inset:0;overflow:hidden;padding:16px 18px 10px;flex-direction:column;align-items:center;text-align:center}
+body.cardmode #text,body.cardmode #guide{display:none}
+body.cardmode #cards{display:flex}
+body.cardmode #band{-webkit-mask-image:none;mask-image:none}
+#pbar{position:absolute;left:0;right:0;top:0;height:5px;background:rgba(255,255,255,.14)}
+#pbar i{display:block;height:100%;width:0;background:var(--gold)}
+#chead{width:var(--colw,100%);font:800 calc(var(--fs,40px)*1.05*var(--k,1))/1.02 var(--display);color:var(--gold);text-transform:uppercase;letter-spacing:.01em}
+#cstats{width:var(--colw,100%);list-style:none;margin:.3em 0 0;padding:0;font:800 calc(var(--fs,40px)*var(--k,1))/1.15 var(--display)}
+#cline{width:var(--colw,100%);margin-top:.35em;font:600 calc(var(--fs,40px)*.72*var(--k,1))/1.25 var(--body);font-style:italic;color:#fff}
+#cline:empty,#cstats:empty{display:none}
+#cfoot{margin-top:auto;display:flex;gap:10px;align-items:center;justify-content:center;font:700 13px var(--body);letter-spacing:.08em;text-transform:uppercase;color:var(--steel)}
+#cstate{display:none;color:var(--gold)}
+body.cardmode.recording:not(.rolling) #cstate{display:inline}
+#cards .cue{color:var(--gold)}
 /* top-right status */
 #rec{position:fixed;right:14px;top:calc(env(safe-area-inset-top,0px) + 10px);display:none;align-items:center;gap:8px;
   font:700 15px var(--body);background:rgba(0,0,0,.55);padding:6px 10px;border-radius:6px;font-variant-numeric:tabular-nums}
@@ -82,12 +98,15 @@ input[type=range]{width:100%;accent-color:var(--gold)}
 #sbar i{display:block;height:100%;width:0;background:var(--gold);transition:width .2s}
 #sendsheet,#review{z-index:6}
 @media (prefers-reduced-motion:reduce){#rec i{animation:none}}
+/* narrow phones: keep all four buttons + record on one row */
+@media (max-width:420px){#dock{gap:6px;padding-left:10px;padding-right:10px}#dock .row{gap:6px!important}#dock .btn{min-width:0;padding:11px 9px;font-size:12.5px;letter-spacing:.02em}#recbtn{width:66px;height:66px}}
+@media (max-width:345px){#dock{gap:4px;padding-left:6px;padding-right:6px}#dock .row{gap:4px!important}#dock .btn{padding:10px 7px;font-size:12px}#recbtn{width:60px;height:60px}}
 </style>
 </head>
 <body>
 <video id="cam" class="mirror" playsinline autoplay muted></video>
 
-<div id="band"><div id="viewport"><div id="guide"></div><div id="text"></div></div></div>
+<div id="band"><div id="viewport"><div id="guide"></div><div id="text"></div><div id="cards"><div id="pbar"><i></i></div><div id="chead"></div><ul id="cstats"></ul><div id="cline"></div><div id="cfoot"><span id="cstate">Paused · hold to resume</span><span id="cpos"></span><span id="cnext"></span></div></div></div></div>
 <div id="rec"><i></i><span id="clock">0:00</span></div>
 <div id="count"></div>
 <div id="warn" role="status"></div>
@@ -107,7 +126,7 @@ input[type=range]{width:100%;accent-color:var(--gold)}
 <section class="sheet" id="scriptsheet">
   <h2>Script</h2>
   <textarea id="script" spellcheck="false"></textarea>
-  <p class="hint">Paste the teleprompter version I send you. Lines in [brackets] show up gold as cues.</p>
+  <p class="hint">Paste the teleprompter version I send you. Lines in [brackets] show up gold as cues.<br><br><b>Talking points:</b> start each point with <b># HEADLINE</b> (add <b>[40]</b> at the end for its seconds). Put stat lines under it, and start a word-for-word line with <b>&gt;</b>. Each point moves on by itself; tap to skip ahead, press and hold to pause, swipe down to go back.</p>
   <div class="row" style="margin-top:14px"><button class="btn red" id="clearscript">Clear</button><button class="btn" id="pastescript">Paste</button><button class="btn gold" id="savescript">Done</button></div>
 </section>
 
@@ -119,10 +138,14 @@ input[type=range]{width:100%;accent-color:var(--gold)}
   <input type="range" id="size" min="24" max="72" step="2">
   <label for="height">Script area height <span id="heightv"></span></label>
   <input type="range" id="height" min="20" max="60" step="1">
+  <label for="colw">Text width <span id="colwv"></span></label>
+  <input type="range" id="colw" min="50" max="100" step="2">
+  <label for="cardsec">Time per talking point <span id="cardsecv"></span></label>
+  <input type="range" id="cardsec" min="15" max="90" step="5">
   <div class="toggle"><span>Start scrolling when recording starts</span><input type="checkbox" id="autoscroll"></div>
   <div class="toggle"><span>3-second countdown</span><input type="checkbox" id="countdown"></div>
   <div class="toggle"><span>Use back camera</span><input type="checkbox" id="back"></div>
-  <p class="hint">Tap the script any time to pause or resume. Drag it up or down to jump.</p>
+  <p class="hint">Scrolling script: tap to pause or resume, drag to jump. Narrower text keeps your eyes close to the lens.<br>Talking points: tap to skip ahead, press and hold to pause, swipe down to go back. A point with its own [seconds] ignores the slider.</p>
   <div class="row" style="margin-top:14px"><button class="btn gold" id="closeset">Done</button></div>
 </section>
 
@@ -159,7 +182,7 @@ input[type=range]{width:100%;accent-color:var(--gold)}
     <h1>48th State<br><span>Prompter</span></h1>
     <p>Your script scrolls right under the front camera while you record. After each take, tap <b>Send to KJ</b> to send it at full quality.</p>
     <button class="btn gold" id="go" style="font-size:18px;padding:16px 28px">Turn on camera</button>
-    <div id="ver">v3.1 · Oct 16 · Send to KJ after each take</div>
+    <div id="ver">v4 · Nov 7 · talking points + narrow text</div>
   </div>
 </div>
 <div id="err"><div><b>Camera blocked</b><span id="errmsg"></span></div></div>
@@ -193,15 +216,56 @@ Until next time. We out.`;
 
   const S = {
     script: store.get("script", SAMPLE), speed: store.get("speed", 46), size: store.get("size", 40),
-    height: store.get("height", 38), autoscroll: store.get("autoscroll", true),
+    height: store.get("height", 38), colw: store.get("colw", 72), cardsec: store.get("cardsec", 35), autoscroll: store.get("autoscroll", true),
     countdown: store.get("countdown", true), back: store.get("back", false)
   };
   let stream = null, rec = null, chunks = [], blob = null, take = 0, wake = null, playURL = null;
   let pos = 0, rolling = false, last = 0, t0 = 0, clockT = null;
+  let cards = null, ci = 0, cDone = 0;   // talking-point mode
 
   // ---------- script render ----------
   function esc(s) { return s.replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+  // Talking points: "# HEADLINE [40]" starts a point; plain lines are stats; "> line" is said word for word.
+  function parseCards(t) {
+    const lines = t.split(/\r?\n/);
+    if (!lines.some(l => /^#\s/.test(l.trim()))) return null;
+    const out = []; let c = null;
+    for (const raw of lines) {
+      const l = raw.trim(); if (!l) continue;
+      const m = l.match(/^#\s+(.*)$/);
+      if (m) { let h = m[1], sec = null; const tm = h.match(/\[(\d{1,3})\s*s?\]\s*$/i);
+        if (tm) { sec = +tm[1]; h = h.slice(0, tm.index).trim(); }
+        out.push(c = { head: h, sec, stats: [], lines: [] }); continue; }
+      if (!c) out.push(c = { head: "", sec: null, stats: [], lines: [] });
+      if (l.startsWith(">")) c.lines.push(l.replace(/^>\s*/, "")); else c.stats.push(l.replace(/^[-•*]\s*/, ""));
+    }
+    return out.length ? out : null;
+  }
+  const cueify = s => esc(s).replace(/\[([^\]]*)\]/g, '<span class="cue">[$1]</span>');
+  const cardMs = () => (cards[ci].sec || S.cardsec) * 1000;
+  function renderCard() {
+    const c = cards[ci];
+    $("chead").innerHTML = cueify(c.head);
+    $("cstats").innerHTML = c.stats.map(x => `<li>${cueify(x)}</li>`).join("");
+    $("cline").innerHTML = c.lines.map(cueify).join("<br>");
+    $("cpos").textContent = `${ci + 1}/${cards.length}`;
+    $("cnext").textContent = ci + 1 < cards.length ? "Next: " + cards[ci + 1].head : "Last point";
+    drawBar(); fitCard();
+  }
+  // Shrink the card's text until the whole point (and the "Next" line) fits in the script area.
+  function fitCard() {
+    const box = $("cards"); let k = 1; box.style.setProperty("--k", k);
+    while (box.scrollHeight > box.clientHeight + 1 && k > 0.45) { k -= 0.05; box.style.setProperty("--k", k.toFixed(2)); }
+  }
+  window.addEventListener("resize", () => cards && fitCard());
+  function drawBar() { $("pbar").firstElementChild.style.width = Math.min(100, cDone / cardMs() * 100) + "%"; }
+  function goCard(n) { if (!cards) return; ci = Math.min(Math.max(0, ci + n), cards.length - 1); cDone = 0; renderCard(); }
   function renderText() {
+    document.documentElement.style.setProperty("--colw", S.colw + "%");
+    cards = parseCards(S.script);
+    document.body.classList.toggle("cardmode", !!cards);
+    if (cards) { ci = Math.min(ci, cards.length - 1); renderCard(); }
+    if (!rolling) $("playbtn").textContent = cards ? "Run" : "Scroll";
     $("text").innerHTML = esc(S.script).replace(/\[([^\]]*)\]/g, '<span class="cue">[$1]</span>');
     document.documentElement.style.setProperty("--fs", S.size + "px");
     document.documentElement.style.setProperty("--band-h", S.height + "vh");
@@ -210,18 +274,29 @@ Until next time. We out.`;
   function maxPos() { return Math.max(0, $("text").scrollHeight - $("viewport").clientHeight * 0.4); }
   function place() { pos = Math.min(Math.max(0, pos), maxPos()); $("text").style.transform = `translateY(${-pos}px)`; }
   function tick(ts) {
-    if (rolling) { if (last) pos += S.speed * (ts - last) / 1000; place(); if (pos >= maxPos()) setRolling(false); }
+    if (rolling && cards) {
+      if (last) cDone += ts - last;
+      if (cDone >= cardMs()) { if (ci + 1 < cards.length) goCard(1); else { cDone = cardMs(); setRolling(false); } }
+      drawBar();
+    } else if (rolling) { if (last) pos += S.speed * (ts - last) / 1000; place(); if (pos >= maxPos()) setRolling(false); }
     last = rolling ? ts : 0; requestAnimationFrame(tick);
   }
-  function setRolling(on) { rolling = on; document.body.classList.toggle("rolling", on); $("playbtn").textContent = on ? "Pause" : "Scroll"; }
+  function setRolling(on) { rolling = on; document.body.classList.toggle("rolling", on); $("playbtn").textContent = on ? "Pause" : (cards ? "Run" : "Scroll"); }
   requestAnimationFrame(tick);
 
   // tap to pause, drag to jump
-  let dragY = null, moved = false;
-  $("band").addEventListener("pointerdown", e => { dragY = e.clientY; moved = false; });
-  window.addEventListener("pointermove", e => { if (dragY === null) return; const d = dragY - e.clientY;
-    if (Math.abs(d) > 4) moved = true; pos += d; dragY = e.clientY; place(); });
-  window.addEventListener("pointerup", () => { if (dragY !== null && !moved) setRolling(!rolling); dragY = null; });
+  // Talking points: tap = next point, press and hold = pause/resume, swipe down = previous, swipe up = next.
+  let dragY = null, moved = false, startY = 0, hold = null, held = false;
+  $("band").addEventListener("pointerdown", e => { dragY = startY = e.clientY; moved = false; held = false;
+    if (cards) hold = setTimeout(() => { held = true; setRolling(!rolling); navigator.vibrate?.(30); }, 450); });
+  window.addEventListener("pointermove", e => { if (dragY === null) return;
+    if (cards) { if (Math.abs(e.clientY - startY) > 10) { moved = true; clearTimeout(hold); } return; }
+    const d = dragY - e.clientY; if (Math.abs(d) > 4) moved = true; pos += d; dragY = e.clientY; place(); });
+  window.addEventListener("pointerup", e => { if (dragY === null) return; clearTimeout(hold);
+    if (cards) { if (!held) { const d = startY - e.clientY; if (!moved) goCard(1); else if (d > 40) goCard(1); else if (d < -40) goCard(-1); } }
+    else if (!moved) setRolling(!rolling);
+    dragY = null; });
+  window.addEventListener("pointercancel", () => { clearTimeout(hold); dragY = null; });
 
   // ---------- camera ----------
   async function startCam() {
@@ -307,7 +382,7 @@ Until next time. We out.`;
     if (playURL) URL.revokeObjectURL(playURL); playURL = null;
   }
   $("recbtn").onclick = () => (rec && rec.state === "recording") ? stopRec() : startRec();
-  $("retake").onclick = () => { releaseTake(); blob = null; close("review"); pos = 0; place(); };
+  $("retake").onclick = () => { releaseTake(); blob = null; close("review"); pos = 0; place(); if (cards) { ci = 0; cDone = 0; renderCard(); } };
   $("savevid").onclick = async () => {
     if (!blob) return;
     $("playback").pause();
@@ -337,17 +412,19 @@ Until next time. We out.`;
       catch { $("script").value = ""; $("script").focus(); }   // blocked: leave an empty box to long-press paste into
     };
   } else { $("pastescript").hidden = true; }
-  $("savescript").onclick = () => { S.script = $("script").value.trim() || SAMPLE; store.set("script", S.script); pos = 0; renderText(); close("scriptsheet"); };
+  $("savescript").onclick = () => { S.script = $("script").value.trim() || SAMPLE; store.set("script", S.script); pos = 0; ci = 0; cDone = 0; renderText(); setRolling(false); close("scriptsheet"); };
   $("setbtn").onclick = () => open("setsheet");
   $("closeset").onclick = () => close("setsheet");
   $("playbtn").onclick = () => setRolling(!rolling);
-  $("topbtn").onclick = () => { setRolling(false); pos = 0; place(); };
+  $("topbtn").onclick = () => { setRolling(false); pos = 0; place(); if (cards) { ci = 0; cDone = 0; renderCard(); } };
   const bindRange = (id, key, fmt) => { const el = $(id), out = $(id + "v");
     el.value = S[key]; out.textContent = fmt(S[key]);
     el.oninput = () => { S[key] = +el.value; out.textContent = fmt(S[key]); store.set(key, S[key]); renderText(); }; };
   bindRange("speed", "speed", v => `${v} px/s`);
   bindRange("size", "size", v => `${v}px`);
   bindRange("height", "height", v => `${v}% of screen`);
+  bindRange("colw", "colw", v => `${v}%`);
+  bindRange("cardsec", "cardsec", v => `${v} s`);
   for (const k of ["autoscroll", "countdown", "back"]) {
     $(k).checked = S[k];
     $(k).onchange = () => { S[k] = $(k).checked; store.set(k, S[k]); if (k === "back" && stream) startCam(); };
